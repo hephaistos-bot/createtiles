@@ -3,6 +3,10 @@ from osgeo import gdal, osr
 import array
 import sys
 
+# Enable GDAL exceptions to suppress FutureWarnings and for better error handling
+gdal.UseExceptions()
+osr.UseExceptions()
+
 # Standard 3x5 pixel font represented by 15-bit integers
 PIXEL_FONT = {
     '0': 0b111101101101111,

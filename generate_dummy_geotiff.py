@@ -50,18 +50,37 @@ def generate_dummy_geotiff(filename, width=512, height=512):
                     # Bottom-Right: Blue
                     r_data[idx], g_data[idx], b_data[idx] = 0, 0, 255
 
-            # 4. Simple "T" for Top and "L" for Left (crude drawing)
-            # "T" at (width//2, 30)
-            if 30 <= y <= 35 and width//2 - 10 <= x <= width//2 + 10:
-                r_data[idx], g_data[idx], b_data[idx] = 255, 255, 0 # Yellow
-            if 35 < y <= 55 and width//2 - 2 <= x <= width//2 + 2:
-                r_data[idx], g_data[idx], b_data[idx] = 255, 255, 0 # Yellow
+            # 4. Letters (crude drawings in Yellow: 255, 255, 0)
 
-            # "L" at (30, height//2)
+            # "T" for Top: at (width//2, 30)
+            if 30 <= y <= 35 and width//2 - 10 <= x <= width//2 + 10:
+                r_data[idx], g_data[idx], b_data[idx] = 255, 255, 0
+            if 35 < y <= 55 and width//2 - 2 <= x <= width//2 + 2:
+                r_data[idx], g_data[idx], b_data[idx] = 255, 255, 0
+
+            # "L" for Left: at (30, height//2)
             if height//2 - 10 <= y <= height//2 + 10 and 30 <= x <= 35:
-                r_data[idx], g_data[idx], b_data[idx] = 255, 255, 0 # Yellow
+                r_data[idx], g_data[idx], b_data[idx] = 255, 255, 0
             if height//2 + 8 <= y <= height//2 + 10 and 35 < x <= 50:
-                r_data[idx], g_data[idx], b_data[idx] = 255, 255, 0 # Yellow
+                r_data[idx], g_data[idx], b_data[idx] = 255, 255, 0
+
+            # "R" for Right: at (width-50, height//2)
+            if height//2 - 10 <= y <= height//2 + 10 and width - 50 <= x <= width - 45:
+                r_data[idx], g_data[idx], b_data[idx] = 255, 255, 0
+            if (height//2 - 10 <= y <= height//2 - 8 or height//2 - 1 <= y <= height//2 + 1) and width - 45 < x <= width - 30:
+                r_data[idx], g_data[idx], b_data[idx] = 255, 255, 0
+            if height//2 - 10 <= y <= height//2 + 1 and width - 32 <= x <= width - 30:
+                r_data[idx], g_data[idx], b_data[idx] = 255, 255, 0
+            if height//2 + 1 < y <= height//2 + 10 and width - 45 + (y - (height//2 + 1)) <= x <= width - 40 + (y - (height//2 + 1)):
+                r_data[idx], g_data[idx], b_data[idx] = 255, 255, 0
+
+            # "D" for Down: at (width//2, height-55)
+            if height - 55 <= y <= height - 35 and width//2 - 10 <= x <= width//2 - 6:
+                r_data[idx], g_data[idx], b_data[idx] = 255, 255, 0
+            if (height - 55 <= y <= height - 53 or height - 37 <= y <= height - 35) and width//2 - 6 < x <= width//2 + 5:
+                r_data[idx], g_data[idx], b_data[idx] = 255, 255, 0
+            if height - 53 < y < height - 37 and width//2 + 6 <= x <= width//2 + 10:
+                r_data[idx], g_data[idx], b_data[idx] = 255, 255, 0
 
     driver = gdal.GetDriverByName('GTiff')
     if driver is None:
@@ -94,7 +113,7 @@ def generate_dummy_geotiff(filename, width=512, height=512):
     dataset = None
     print(f"Generated dummy 3-band GeoTIFF: {filename} ({width}x{height})")
     print("Orientation markers: Top-Left=White, Top-Right=Red, Bottom-Left=Green, Bottom-Right=Blue")
-    print("Patterns: 128px gradients (R/G) and 64px checkerboard (B)")
+    print("Letters: T (Top), L (Left), R (Right), D (Down)")
 
 if __name__ == "__main__":
     # Default values

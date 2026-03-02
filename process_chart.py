@@ -24,7 +24,12 @@ Example Usage:
 import argparse
 import sys
 import os
-from osgeo import gdal
+from osgeo import gdal, osr
+
+# Enable GDAL exceptions to suppress FutureWarnings and for better error handling
+gdal.UseExceptions()
+osr.UseExceptions()
+
 from osgeo_utils import gdal2tiles
 
 def process_geotiff(input_file, output_dir, zmin, zmax):

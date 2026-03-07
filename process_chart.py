@@ -3,7 +3,7 @@
 GeoTIFF to XYZ Tiles Converter
 ------------------------------
 This script processes a GeoTIFF file and generates raster image tiles in the
-standard XYZ / Slippy Map directory structure ({z}/{x}/{y}.png).
+standard XYZ / Slippy Map directory structure ({z}/{x}/{y}.png or {z}/{x}/{y}.jpg).
 It automatically handles reprojection to EPSG:3857 (Web Mercator) if necessary.
 
 Dependencies:
@@ -18,7 +18,7 @@ Installation (macOS via Homebrew):
     pip install gdal==$(gdal-config --version)
 
 Example Usage:
-    python3 process_chart.py input_chart.tif output_tiles --zmin 0 --zmax 5
+    python3 process_chart.py input_chart.tif output_tiles --zmin 0 --zmax 5 --tile-format jpg
 """
 
 import argparse
@@ -32,7 +32,7 @@ osr.UseExceptions()
 
 from osgeo_utils import gdal2tiles
 
-def process_geotiff(input_file, output_dir, zmin, zmax):
+def process_geotiff(input_file, output_dir, zmin, zmax, tile_format):
     """
     Processes the GeoTIFF and generates tiles using gdal2tiles.
     """
@@ -45,13 +45,31 @@ def process_geotiff(input_file, output_dir, zmin, zmax):
     # We use the Mercator profile (EPSG:3857) which is standard for web maps
     # We force XYZ tile numbering as requested.
     # Resampling is set to 'bilinear'.
+
+    # Map the user-provided tile format to the corresponding GDAL driver name
+    tile_driver = 'PNG'
+    if tile_format == 'jpg':
+        # Check GDAL version for JPEG support in gdal2tiles
+        # Native JPEG support in gdal2tiles was added in GDAL 3.9
+        gdal_version = gdal.VersionInfo('RELEASE_NAME')
+        try:
+            version_tuple = tuple(map(int, gdal_version.split('.')[:2]))
+            if version_tuple < (3, 9):
+                print(f"Error: JPEG output requires GDAL 3.9 or newer. Current version is {gdal_version}.")
+                sys.exit(1)
+        except (ValueError, IndexError):
+            # Fallback for unexpected version string formats
+            print(f"Warning: Could not reliably parse GDAL version '{gdal_version}'. Attempting to proceed.")
+
+        tile_driver = 'JPEG'
+
     options = {
         'profile': 'mercator',
         'resampling': 'bilinear',
         'zoom': f"{zmin}-{zmax}",
         'xyz': True,
         'tilesize': 256,
-        'tiledriver': 'PNG',
+        'tiledriver': tile_driver,
         'quiet': False,
         'verbose': True
     }
@@ -60,7 +78,7 @@ def process_geotiff(input_file, output_dir, zmin, zmax):
     print(f"Zoom levels: {zmin} to {zmax}")
     print(f"Output directory: {output_dir}")
     print(f"Resampling: bilinear")
-    print(f"Format: PNG (XYZ structure)")
+    print(f"Format: {tile_driver} (XYZ structure)")
 
     try:
         # In newer GDAL versions, we can use the GDAL2Tiles class
@@ -101,6 +119,7 @@ def main():
     parser.add_argument("output", help="Directory where tiles will be saved")
     parser.add_argument("--zmin", type=int, default=0, help="Minimum zoom level (default: 0)")
     parser.add_argument("--zmax", type=int, default=10, help="Maximum zoom level (default: 10)")
+    parser.add_argument("--tile-format", choices=['png', 'jpg'], default='png', help="Output tile format (default: png)")
 
     args = parser.parse_args()
 
@@ -109,7 +128,7 @@ def main():
         print("Error: Invalid zoom levels. Ensure 0 <= zmin <= zmax.")
         sys.exit(1)
 
-    process_geotiff(args.input, args.output, args.zmin, args.zmax)
+    process_geotiff(args.input, args.output, args.zmin, args.zmax, args.tile_format)
 
 if __name__ == "__main__":
     main()

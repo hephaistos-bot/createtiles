@@ -7,6 +7,21 @@ import sys
 gdal.UseExceptions()
 osr.UseExceptions()
 
+def decimal_to_dm(value, is_lat):
+    """Converts decimal degrees to Degrees and Decimal Minutes format."""
+    if is_lat:
+        hemisphere = "N" if value >= 0 else "S"
+        degrees_width = 2
+    else:
+        hemisphere = "E" if value >= 0 else "W"
+        degrees_width = 3
+
+    abs_value = abs(value)
+    degrees = int(abs_value)
+    minutes = (abs_value - degrees) * 60
+
+    return f"{degrees:0{degrees_width}d}° {minutes:06.3f}' {hemisphere}"
+
 # Standard 3x5 pixel font represented by 15-bit integers
 PIXEL_FONT = {
     '0': 0b111101101101111,
@@ -154,9 +169,35 @@ def generate_dummy_geotiff(filename, width=512, height=512):
 
     # Clean up
     dataset.FlushCache()
+
+    # Robustly retrieve coordinates from the generated dataset
+    gt = dataset.GetGeoTransform()
+    ds_w = dataset.RasterXSize
+    ds_h = dataset.RasterYSize
+
+    corners = [
+        ("Top-Left", 0, 0),
+        ("Top-Right", ds_w, 0),
+        ("Bottom-Left", 0, ds_h),
+        ("Bottom-Right", ds_w, ds_h)
+    ]
+
+    corner_reports = []
+    for label, px, py in corners:
+        lon = gt[0] + px * gt[1] + py * gt[2]
+        lat = gt[3] + px * gt[4] + py * gt[5]
+        dm_format = f"{decimal_to_dm(lat, True)}, {decimal_to_dm(lon, False)}"
+        decimal_format = f"Lat: {lat:.4f}, Lon: {lon:.4f}"
+        corner_reports.append(f"{label:13}: {dm_format} ({decimal_format})")
+
     dataset = None
+
     print(f"Generated dummy 3-band GeoTIFF: {filename} ({width}x{height})")
     print("Orientation markers and sequential numbers added with improved readability.")
+
+    print("\nCorner GPS Coordinates:")
+    for report in corner_reports:
+        print(report)
 
 if __name__ == "__main__":
     # Default values

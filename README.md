@@ -4,7 +4,7 @@ This project provides a robust Python script to process georeferenced marine cha
 
 ## Features
 
-* **Standard XYZ Structure**: Generates tiles in the `{z}/{x}/{y}.png` format.
+* **Standard XYZ Structure**: Generates tiles in the `{z}/{x}/{y}.png` format. Supports PNG, JPG, and raw RGB565.
 * **Automatic Reprojection**: Handles reprojection to **EPSG:3857 (Web Mercator)** automatically.
 * **Customizable Zoom Levels**: Specify the minimum (`--zmin`) and maximum (`--zmax`) zoom levels via command-line arguments.
 * **High-Quality Resampling**: Uses **bilinear** resampling by default for better visual results on marine charts.
@@ -49,6 +49,7 @@ python3 process_chart.py <input_geotiff> <output_directory> --zmin <min_zoom> --
 * `output_directory`: Path where the generated tiles will be stored.
 * `--zmin`: The minimum zoom level to generate (default: 0).
 * `--zmax`: The maximum zoom level to generate (default: 10).
+* `--tile-format`: The output format of the tiles: `png`, `jpg`, or `rgb565` (default: `png`).
 
 ### Example:
 To generate tiles for zoom levels 0 through 5 from a chart named `marine_chart.tif` and save them in a folder called `tiles`:
@@ -56,6 +57,12 @@ To generate tiles for zoom levels 0 through 5 from a chart named `marine_chart.t
 ```bash
 python3 process_chart.py marine_chart.tif tiles --zmin 0 --zmax 5
 ```
+
+## RGB565 Format
+
+The `rgb565` format is particularly useful for ESP32-based projects with direct display drivers. It generates raw binary files (`.rgb565`) where each pixel is represented by 2 bytes in Big-Endian order (5 bits Red, 6 bits Green, 5 bits Blue).
+
+Transparent areas in the source GeoTIFF are blended with a solid white background (RGB 255, 255, 255) during the conversion.
 
 ## How it Works
 

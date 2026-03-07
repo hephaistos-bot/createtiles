@@ -33,10 +33,13 @@ osr.UseExceptions()
 
 from osgeo_utils import gdal2tiles
 
+import numpy as np
+import struct
+
 def convert_to_rgb565(png_path, rgb565_path):
     """
-    Converts a PNG tile to RGB565 raw format.
-    Blends with white background if transparency is present.
+    Fast conversion of a PNG tile to LVGL 9 compatible RGB565 binary.
+    Includes the LVGL 9 12-byte header and uses Little-Endian for ESP32.
     """
     ds = gdal.Open(png_path)
     if not ds:
@@ -45,41 +48,54 @@ def convert_to_rgb565(png_path, rgb565_path):
     width = ds.RasterXSize
     height = ds.RasterYSize
     bands = ds.RasterCount
-
-    r_band = ds.GetRasterBand(1).ReadRaster()
-    g_band = ds.GetRasterBand(2).ReadRaster()
-    b_band = ds.GetRasterBand(3).ReadRaster()
-    a_band = None
-    if bands == 4:
-        a_band = ds.GetRasterBand(4).ReadRaster()
-
+    
+    # Read all bands at once into a numpy array: shape (bands, height, width)
+    data = ds.ReadAsArray()
     ds = None # Close dataset
 
-    # Buffer the entire tile to speed up writing
-    rgb565_data = bytearray(width * height * 2)
+    r = data[0].astype(np.float32)
+    g = data[1].astype(np.float32)
+    b = data[2].astype(np.float32)
 
-    for i in range(width * height):
-        r = r_band[i]
-        g = g_band[i]
-        b = b_band[i]
+    # Handle Alpha blending with white background vectorially
+    if bands == 4:
+        alpha = data[3].astype(np.float32) / 255.0
+        r = (r * alpha + 255 * (1 - alpha))
+        g = (g * alpha + 255 * (1 - alpha))
+        b = (b * alpha + 255 * (1 - alpha))
 
-        if a_band is not None:
-            alpha = a_band[i] / 255.0
-            r = int(r * alpha + 255 * (1 - alpha))
-            g = int(g * alpha + 255 * (1 - alpha))
-            b = int(b * alpha + 255 * (1 - alpha))
+    # Convert back to integers
+    r = r.astype(np.uint16)
+    g = g.astype(np.uint16)
+    b = b.astype(np.uint16)
 
-        # Pack into RGB565 (5 bits Red, 6 bits Green, 5 bits Blue)
-        # Big-Endian default: [RRRRRGGG] [GGGBBBBB]
-        # To switch to Little-Endian, use '<H' instead of '>H'
-        val = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
+    # Pack into RGB565 bitwise
+    # 5 bits Red, 6 bits Green, 5 bits Blue
+    rgb565_matrix = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
 
-        # Manually pack Big-Endian for speed
-        rgb565_data[i*2] = (val >> 8) & 0xFF
-        rgb565_data[i*2 + 1] = val & 0xFF
+    # LVGL v9 Image Header (12 bytes)
+    # Struct format: 
+    # uint8_t magic (0x19 for v9)
+    # uint8_t cf (0x12 for LV_COLOR_FORMAT_RGB565)
+    # uint16_t flags (0 for standard uncompressed)
+    # uint16_t w (width)
+    # uint16_t h (height)
+    # uint16_t stride (width * 2 for RGB565)
+    # uint16_t reserved (0)
+    # '<' ensures Little-Endian packing
+    lv_header = struct.pack('<BBHHHhh', 
+                            0x19,       # Magic
+                            0x12,       # Color format RGB565
+                            0,          # Flags
+                            width,      # Width
+                            height,     # Height
+                            width * 2,  # Stride in bytes
+                            0)          # Reserved
 
     with open(rgb565_path, 'wb') as f:
-        f.write(rgb565_data)
+        f.write(lv_header)
+        # Write the pixel data in Little-Endian format
+        f.write(rgb565_matrix.astype('<u2').tobytes())
 
     return True
 

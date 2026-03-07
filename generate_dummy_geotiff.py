@@ -177,8 +177,6 @@ def generate_dummy_geotiff(filename, width=512, height=512):
 
     corners = [
         ("Top-Left", 0, 0),
-        ("Top-Right", ds_w, 0),
-        ("Bottom-Left", 0, ds_h),
         ("Bottom-Right", ds_w, ds_h)
     ]
 

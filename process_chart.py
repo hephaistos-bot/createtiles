@@ -24,6 +24,7 @@ Example Usage:
 import argparse
 import sys
 import os
+import struct
 from osgeo import gdal, osr
 
 # Enable GDAL exceptions to suppress FutureWarnings and for better error handling
@@ -31,6 +32,56 @@ gdal.UseExceptions()
 osr.UseExceptions()
 
 from osgeo_utils import gdal2tiles
+
+def convert_to_rgb565(png_path, rgb565_path):
+    """
+    Converts a PNG tile to RGB565 raw format.
+    Blends with white background if transparency is present.
+    """
+    ds = gdal.Open(png_path)
+    if not ds:
+        return False
+
+    width = ds.RasterXSize
+    height = ds.RasterYSize
+    bands = ds.RasterCount
+
+    r_band = ds.GetRasterBand(1).ReadRaster()
+    g_band = ds.GetRasterBand(2).ReadRaster()
+    b_band = ds.GetRasterBand(3).ReadRaster()
+    a_band = None
+    if bands == 4:
+        a_band = ds.GetRasterBand(4).ReadRaster()
+
+    ds = None # Close dataset
+
+    # Buffer the entire tile to speed up writing
+    rgb565_data = bytearray(width * height * 2)
+
+    for i in range(width * height):
+        r = r_band[i]
+        g = g_band[i]
+        b = b_band[i]
+
+        if a_band is not None:
+            alpha = a_band[i] / 255.0
+            r = int(r * alpha + 255 * (1 - alpha))
+            g = int(g * alpha + 255 * (1 - alpha))
+            b = int(b * alpha + 255 * (1 - alpha))
+
+        # Pack into RGB565 (5 bits Red, 6 bits Green, 5 bits Blue)
+        # Big-Endian default: [RRRRRGGG] [GGGBBBBB]
+        # To switch to Little-Endian, use '<H' instead of '>H'
+        val = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
+
+        # Manually pack Big-Endian for speed
+        rgb565_data[i*2] = (val >> 8) & 0xFF
+        rgb565_data[i*2 + 1] = val & 0xFF
+
+    with open(rgb565_path, 'wb') as f:
+        f.write(rgb565_data)
+
+    return True
 
 def process_geotiff(input_file, output_dir, zmin, zmax, tile_format):
     """
@@ -48,7 +99,11 @@ def process_geotiff(input_file, output_dir, zmin, zmax, tile_format):
 
     # Map the user-provided tile format to the corresponding GDAL driver name
     tile_driver = 'PNG'
-    if tile_format == 'jpg':
+    actual_format = tile_format
+    if tile_format == 'rgb565':
+        # We'll generate PNGs first then convert
+        tile_driver = 'PNG'
+    elif tile_format == 'jpg':
         # Check GDAL version for JPEG support in gdal2tiles
         # Native JPEG support in gdal2tiles was added in GDAL 3.9
         gdal_version = gdal.VersionInfo('RELEASE_NAME')
@@ -106,6 +161,17 @@ def process_geotiff(input_file, output_dir, zmin, zmax, tile_format):
         # when generating overview tiles (log logging a tuple as a string).
         gdal2tiles.main(argv)
 
+        if actual_format == 'rgb565':
+            print("\nConverting tiles to RGB565...")
+            for root, dirs, files in os.walk(output_dir):
+                for file in files:
+                    if file.endswith('.png'):
+                        png_path = os.path.join(root, file)
+                        rgb565_path = os.path.join(root, file.replace('.png', '.rgb565'))
+                        if convert_to_rgb565(png_path, rgb565_path):
+                            os.remove(png_path)
+            print("Conversion to RGB565 completed.")
+
         print("\nTiling process completed successfully.")
 
     except Exception as e:
@@ -119,7 +185,7 @@ def main():
     parser.add_argument("output", help="Directory where tiles will be saved")
     parser.add_argument("--zmin", type=int, default=0, help="Minimum zoom level (default: 0)")
     parser.add_argument("--zmax", type=int, default=10, help="Maximum zoom level (default: 10)")
-    parser.add_argument("--tile-format", choices=['png', 'jpg'], default='png', help="Output tile format (default: png)")
+    parser.add_argument("--tile-format", choices=['png', 'jpg', 'rgb565'], default='png', help="Output tile format (default: png)")
 
     args = parser.parse_args()
 

@@ -36,6 +36,9 @@ from osgeo_utils import gdal2tiles
 import numpy as np
 import struct
 
+# Configuration constants
+JPEG_QUALITY = 60
+
 def convert_to_rgb565(png_path, rgb565_path):
     """
     Fast conversion of a PNG tile to LVGL 9 compatible RGB565 binary.
@@ -167,6 +170,8 @@ def process_geotiff(input_file, output_dir, zmin, zmax, tile_format):
             argv.append('--xyz')
         argv.extend(['--tilesize', str(options['tilesize'])])
         argv.extend(['--tiledriver', options['tiledriver']])
+        if options['tiledriver'] == 'JPEG':
+            argv.extend(['--jpeg-quality', str(JPEG_QUALITY)])
         argv.extend(['--webviewer', 'none']) # We don't need the HTML viewer for ESP32
 
         argv.append(input_file)

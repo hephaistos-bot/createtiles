@@ -37,7 +37,7 @@ import numpy as np
 import struct
 
 # Configuration constants
-JPEG_QUALITY = 70
+JPEG_QUALITY = 60
 
 def convert_to_rgb565(png_path, rgb565_path):
     """

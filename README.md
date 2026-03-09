@@ -21,9 +21,9 @@ The script requires the **GDAL** library and its Python bindings.
    ```bash
    brew install gdal
    ```
-2. Install Python GDAL bindings (ensure they match your GDAL version):
+2. Install Python GDAL bindings and Pillow:
    ```bash
-   pip install gdal==$(gdal-config --version)
+   pip install gdal==$(gdal-config --version) Pillow
    ```
 
 #### Ubuntu / Debian
@@ -31,9 +31,9 @@ The script requires the **GDAL** library and its Python bindings.
    ```bash
    sudo apt-get update && sudo apt-get install -y libgdal-dev gdal-bin python3-gdal
    ```
-2. Install Python GDAL bindings:
+2. Install Python GDAL bindings and Pillow:
    ```bash
-   pip install gdal==$(gdal-config --version)
+   pip install gdal==$(gdal-config --version) Pillow
    ```
 
 ## Usage

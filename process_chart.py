@@ -11,11 +11,11 @@ Dependencies:
 
 Installation (Ubuntu/Debian):
     sudo apt-get update && sudo apt-get install -y libgdal-dev gdal-bin python3-gdal
-    pip install gdal==$(gdal-config --version)
+    pip install gdal==$(gdal-config --version) Pillow
 
 Installation (macOS via Homebrew):
     brew install gdal
-    pip install gdal==$(gdal-config --version)
+    pip install gdal==$(gdal-config --version) Pillow
 
 Example Usage:
     python3 process_chart.py input_chart.tif output_tiles --zmin 0 --zmax 5 --tile-format jpg
@@ -26,6 +26,7 @@ import sys
 import os
 import struct
 from osgeo import gdal, osr
+from PIL import Image
 
 # Enable GDAL exceptions to suppress FutureWarnings and for better error handling
 gdal.UseExceptions()
@@ -34,7 +35,6 @@ osr.UseExceptions()
 from osgeo_utils import gdal2tiles
 
 import numpy as np
-import struct
 
 # Configuration constants
 JPEG_QUALITY = 60
@@ -117,25 +117,10 @@ def process_geotiff(input_file, output_dir, zmin, zmax, tile_format):
     # Resampling is set to 'bilinear'.
 
     # Map the user-provided tile format to the corresponding GDAL driver name
+    # We use PNG as an intermediate format for rgb565 and jpg to have better control
+    # over the final output (transparency blending, subsampling, etc.)
     tile_driver = 'PNG'
     actual_format = tile_format
-    if tile_format == 'rgb565':
-        # We'll generate PNGs first then convert
-        tile_driver = 'PNG'
-    elif tile_format == 'jpg':
-        # Check GDAL version for JPEG support in gdal2tiles
-        # Native JPEG support in gdal2tiles was added in GDAL 3.9
-        gdal_version = gdal.VersionInfo('RELEASE_NAME')
-        try:
-            version_tuple = tuple(map(int, gdal_version.split('.')[:2]))
-            if version_tuple < (3, 9):
-                print(f"Error: JPEG output requires GDAL 3.9 or newer. Current version is {gdal_version}.")
-                sys.exit(1)
-        except (ValueError, IndexError):
-            # Fallback for unexpected version string formats
-            print(f"Warning: Could not reliably parse GDAL version '{gdal_version}'. Attempting to proceed.")
-
-        tile_driver = 'JPEG'
 
     options = {
         'profile': 'mercator',
@@ -152,7 +137,7 @@ def process_geotiff(input_file, output_dir, zmin, zmax, tile_format):
     print(f"Zoom levels: {zmin} to {zmax}")
     print(f"Output directory: {output_dir}")
     print(f"Resampling: bilinear")
-    print(f"Format: {tile_driver} (XYZ structure)")
+    print(f"Target Format: {actual_format} (XYZ structure)")
 
     try:
         # In newer GDAL versions, we can use the GDAL2Tiles class
@@ -170,8 +155,6 @@ def process_geotiff(input_file, output_dir, zmin, zmax, tile_format):
             argv.append('--xyz')
         argv.extend(['--tilesize', str(options['tilesize'])])
         argv.extend(['--tiledriver', options['tiledriver']])
-        if options['tiledriver'] == 'JPEG':
-            argv.extend(['--jpeg-quality', str(JPEG_QUALITY)])
         argv.extend(['--webviewer', 'none']) # We don't need the HTML viewer for ESP32
 
         argv.append(input_file)
@@ -182,16 +165,41 @@ def process_geotiff(input_file, output_dir, zmin, zmax, tile_format):
         # when generating overview tiles (log logging a tuple as a string).
         gdal2tiles.main(argv)
 
-        if actual_format == 'rgb565':
-            print("\nConverting tiles to RGB565...")
+        if actual_format in ['rgb565', 'jpg']:
+            print(f"\nConverting/Optimizing tiles to {actual_format}...")
             for root, dirs, files in os.walk(output_dir):
                 for file in files:
                     if file.endswith('.png'):
                         png_path = os.path.join(root, file)
-                        rgb565_path = os.path.join(root, file.replace('.png', '.rgb565'))
-                        if convert_to_rgb565(png_path, rgb565_path):
+
+                        if actual_format == 'rgb565':
+                            rgb565_path = os.path.join(root, file.replace('.png', '.rgb565'))
+                            if convert_to_rgb565(png_path, rgb565_path):
+                                os.remove(png_path)
+
+                        elif actual_format == 'jpg':
+                            jpg_path = os.path.join(root, file.replace('.png', '.jpg'))
+                            with Image.open(png_path) as img:
+                                # Convert to pure RGB (remove alpha if present)
+                                if img.mode in ("RGBA", "P"):
+                                    # Create white background to replace transparency
+                                    background = Image.new("RGB", img.size, (255, 255, 255))
+                                    if img.mode == "RGBA":
+                                        background.paste(img, mask=img.split()[3])
+                                    else:
+                                        background.paste(img)
+                                    img = background
+
+                                # OPTIMIZED SAVE FOR ESP32
+                                img.save(jpg_path, 'JPEG',
+                                         quality=JPEG_QUALITY, # Controlled by constant
+                                         optimize=True,        # Optimizes Huffman table
+                                         progressive=False,    # MANDATORY: Baseline mode for S3 RAM
+                                         subsampling=2)        # MANDATORY: Chroma Subsampling 4:2:0
+
                             os.remove(png_path)
-            print("Conversion to RGB565 completed.")
+
+            print(f"Conversion to {actual_format} completed.")
 
         print("\nTiling process completed successfully.")
 

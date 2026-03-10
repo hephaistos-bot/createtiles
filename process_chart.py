@@ -25,8 +25,10 @@ import argparse
 import sys
 import os
 import struct
+import xml.etree.ElementTree as ET
 from osgeo import gdal, osr
 from PIL import Image
+import numpy as np
 
 # Enable GDAL exceptions to suppress FutureWarnings and for better error handling
 gdal.UseExceptions()
@@ -34,10 +36,32 @@ osr.UseExceptions()
 
 from osgeo_utils import gdal2tiles
 
-import numpy as np
-
 # Configuration constants
 JPEG_QUALITY = 60
+
+def get_xml_georef(xml_path):
+    """
+    Parses the Shom XML metadata and returns the geographic bounding box.
+    Returns: (west, east, south, north) or None if not found.
+    """
+    try:
+        ns = {
+            'gmd': 'http://www.isotc211.org/2005/gmd',
+            'gco': 'http://www.isotc211.org/2005/gco'
+        }
+        tree = ET.parse(xml_path)
+        root = tree.getroot()
+        
+        west = root.find('.//gmd:westBoundLongitude/gco:Decimal', ns)
+        east = root.find('.//gmd:eastBoundLongitude/gco:Decimal', ns)
+        south = root.find('.//gmd:southBoundLatitude/gco:Decimal', ns)
+        north = root.find('.//gmd:northBoundLatitude/gco:Decimal', ns)
+        
+        if all(v is not None for v in [west, east, south, north]):
+            return float(west.text), float(east.text), float(south.text), float(north.text)
+    except Exception as e:
+        print(f"Warning: Failed to parse XML file {xml_path}: {e}")
+    return None
 
 def convert_to_rgb565(png_path, rgb565_path):
     """
@@ -102,7 +126,7 @@ def convert_to_rgb565(png_path, rgb565_path):
 
     return True
 
-def process_geotiff(input_file, output_dir, zmin, zmax, tile_format):
+def process_geotiff(input_file, output_dir, zmin, zmax, tile_format, xml_file=None):
     """
     Processes the GeoTIFF and generates tiles using gdal2tiles.
     """
@@ -110,6 +134,40 @@ def process_geotiff(input_file, output_dir, zmin, zmax, tile_format):
     if not os.path.exists(input_file):
         print(f"Error: Input file '{input_file}' not found.")
         sys.exit(1)
+
+    # Metadata XML handling
+    if not xml_file:
+        # Auto-detect XML: same basename as input file but with .xml extension
+        base, _ = os.path.splitext(input_file)
+        possible_xml = base + '.xml'
+        if os.path.exists(possible_xml):
+            xml_file = possible_xml
+            print(f"Found metadata XML: {xml_file}")
+    
+    actual_input = input_file
+    src_ds = gdal.Open(input_file)
+    is_paletted = src_ds.GetRasterBand(1).GetColorInterpretation() == gdal.GCI_PaletteIndex
+    
+    if xml_file or is_paletted:
+        vrt_path = os.path.join(output_dir, "input_processed.vrt")
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Build translation options
+        translate_options = "-of VRT"
+        if xml_file:
+            bbox = get_xml_georef(xml_file)
+            if bbox:
+                west, east, south, north = bbox
+                print(f"Applying GPS coordinates from XML: W={west}, E={east}, S={south}, N={north}")
+                translate_options += f" -a_srs EPSG:4326 -a_ullr {west} {north} {east} {south}"
+        
+        if is_paletted:
+            print("Expanding paletted image to RGBA for processing...")
+            translate_options += " -expand rgba"
+            
+        gdal.Translate(vrt_path, src_ds, options=translate_options)
+        actual_input = vrt_path
+        print(f"Processed VRT created: {vrt_path}")
 
     # Prepare gdal2tiles options
     # We use the Mercator profile (EPSG:3857) which is standard for web maps
@@ -133,7 +191,7 @@ def process_geotiff(input_file, output_dir, zmin, zmax, tile_format):
         'verbose': True
     }
 
-    print(f"Starting tiling process for {input_file}...")
+    print(f"Starting tiling process for {actual_input}...")
     print(f"Zoom levels: {zmin} to {zmax}")
     print(f"Output directory: {output_dir}")
     print(f"Resampling: bilinear")
@@ -157,7 +215,7 @@ def process_geotiff(input_file, output_dir, zmin, zmax, tile_format):
         argv.extend(['--tiledriver', options['tiledriver']])
         argv.extend(['--webviewer', 'none']) # We don't need the HTML viewer for ESP32
 
-        argv.append(input_file)
+        argv.append(actual_input)
         argv.append(output_dir)
 
         # Call gdal2tiles.main which handles the processing
@@ -215,6 +273,7 @@ def main():
     parser.add_argument("--zmin", type=int, default=0, help="Minimum zoom level (default: 0)")
     parser.add_argument("--zmax", type=int, default=10, help="Maximum zoom level (default: 10)")
     parser.add_argument("--tile-format", choices=['png', 'jpg', 'rgb565'], default='png', help="Output tile format (default: png)")
+    parser.add_argument("--xml", help="Optional path to metadata XML file for GPS coordinates")
 
     args = parser.parse_args()
 
@@ -223,7 +282,7 @@ def main():
         print("Error: Invalid zoom levels. Ensure 0 <= zmin <= zmax.")
         sys.exit(1)
 
-    process_geotiff(args.input, args.output, args.zmin, args.zmax, args.tile_format)
+    process_geotiff(args.input, args.output, args.zmin, args.zmax, args.tile_format, args.xml)
 
 if __name__ == "__main__":
     main()
